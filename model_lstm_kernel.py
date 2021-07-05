@@ -166,12 +166,12 @@ class PTBModel(object):
 
         state = self._initial_state
 
-        x_weight = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4, size], stddev=0.1),
-                                   name='x_weight',
+        x_weight = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4, size + size], stddev=0.1),
+                                   name='rnn_weight',
                                    dtype=tf.float32)
-        h_weight = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4, size], stddev=0.1),
-                                   name='h_weight',
-                                   dtype=tf.float32)
+        # h_weight = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4, size], stddev=0.1),
+        #                            name='h_weight',
+        #                            dtype=tf.float32)
 
         bias = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4], stddev=0.1),
                                name='bias_weight',
@@ -183,16 +183,18 @@ class PTBModel(object):
             st_1, ct_1 = tf.unstack(hprev)
             st, ct = [], []
             tmp = x
-            for nl in range(n_layers):
+            for l_i in range(n_layers):
                 # if is_training and config.keep_prob < 1:
                 #     inputs = tf.nn.dropout(inputs, config.keep_prob)
                 #
-                fc_gate = tf.matmul(h_weight[nl], tf.transpose(st_1[nl])) + tf.matmul(x_weight[nl], tf.transpose(tmp))
-                fc_gate = tf.transpose(fc_gate) + bias[nl]
+                fc_gate = tf.matmul(x_weight[l_i], tf.transpose(tf.concat([tmp, st_1[l_i]], axis=1)))
+
+                # fc_gate = tf.matmul(h_weight[l_i], ) + tf.matmul(x_weight[l_i],)
+                fc_gate = tf.transpose(fc_gate) + bias[l_i]
 
                 i, f, g, o = tf.split(fc_gate, 4, axis=1)
                 i, f, g, o = tf.sigmoid(i), tf.sigmoid(f), tf.tanh(g), tf.sigmoid(o)
-                ct_i = ct_1[nl] * f + g * i
+                ct_i = ct_1[l_i] * f + g * i
                 st_i = tf.tanh(ct_i) * o
 
                 tmp = st_i
@@ -206,7 +208,7 @@ class PTBModel(object):
             return tf.stack([st, ct])
 
         states = tf.scan(step, tf.transpose(inputs, [1, 0, 2]), initializer=state)
-
+        self._final_state = states[-1]
         # transpose/slice -> pick st from [ct, st] -> pick st[-1] from st
         outputs = tf.transpose(states, [1, 2, 3, 0, 4])[0][-1]
 
@@ -229,7 +231,7 @@ class PTBModel(object):
         )
 
         self._cost = cost = tf.reduce_sum(loss) / batch_size
-        self._final_state = state
+
 
         if not is_training:
             return
