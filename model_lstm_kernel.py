@@ -200,7 +200,7 @@ class PTBModel(object):
                 if is_training and config.keep_prob < 1:  # the original paper only applies dropout on output
                     tmp = tf.nn.dropout(tmp, config.keep_prob)
 
-                st.append(st_i)
+                st.append(tmp)
                 ct.append(ct_i)
 
             return tf.stack([st, ct])
