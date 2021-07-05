@@ -67,14 +67,8 @@ flags.DEFINE_string("data_path", 'data/ptb/',
                     "Where the training/test data is stored.")
 flags.DEFINE_string("save_path", None,
                     "Model output directory.")
-flags.DEFINE_bool("use_fp16", False,
-                  "Train using 16-bit floats instead of 32bit floats")
 
 FLAGS = flags.FLAGS
-
-
-def data_type():
-    return tf.float16 if FLAGS.use_fp16 else tf.float32
 
 
 class PTBInput(object):
@@ -88,9 +82,12 @@ class PTBInput(object):
             data, batch_size, num_steps, name=name)
 
 
-def sequence_loss_by_example(logits, targets, weights,
+def sequence_loss_by_example(logits,
+                             targets,
+                             weights,
                              average_across_timesteps=True,
-                             softmax_loss_function=None, name=None):
+                             softmax_loss_function=None,
+                             name=None):
     """Weighted cross-entropy loss for a sequence of logits (per example).
     Args:
       logits: List of 2D Tensors of shape [batch_size x num_decoder_symbols].
@@ -109,8 +106,7 @@ def sequence_loss_by_example(logits, targets, weights,
     if len(targets) != len(logits) or len(weights) != len(logits):
         raise ValueError("Lengths of logits, weights, and targets must be the same "
                          "%d, %d, %d." % (len(logits), len(weights), len(targets)))
-    with tf.name_scope(name, "sequence_loss_by_example",
-                       logits + targets + weights):
+    with tf.name_scope(name, "sequence_loss_by_example", logits + targets + weights):
         log_perp_list = []
         for logit, target, weight in zip(logits, targets, weights):
             if softmax_loss_function is None:
@@ -151,11 +147,11 @@ class PTBModel(object):
                 lstm_cell, output_keep_prob=config.keep_prob)
         cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * config.num_layers, state_is_tuple=True)
 
-        self._initial_state = cell.zero_state(batch_size, data_type())
+        self._initial_state = cell.zero_state(batch_size, tf.float32)
 
         with tf.device("/cpu:0"):
             embedding = tf.get_variable(
-                "embedding", [vocab_size, size], dtype=data_type())
+                "embedding", [vocab_size, size], dtype=tf.float32)
             inputs = tf.nn.embedding_lookup(embedding, input_.input_data)
 
         if is_training and config.keep_prob < 1:
@@ -173,19 +169,22 @@ class PTBModel(object):
         state = self._initial_state
         with tf.variable_scope("RNN"):
             for time_step in range(num_steps):
-                if time_step > 0: tf.get_variable_scope().reuse_variables()
+                if time_step > 0:
+                    tf.get_variable_scope().reuse_variables()
                 (cell_output, state) = cell(inputs[:, time_step, :], state)
                 outputs.append(cell_output)
 
-        output = tf.reshape(outputs,(-1,size))
-        softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype=data_type())
-        softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype=data_type())
+        # output = tf.reshape(outputs, (-1, size))
+        output = tf.reshape(tf.concat(outputs, 1), (-1, size))
+        softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype=tf.float32)
+        softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype=tf.float32)
         logits = tf.matmul(output, softmax_w) + softmax_b
 
         loss = sequence_loss_by_example(
             [logits],
             [tf.reshape(input_.targets, [-1])],
-            [tf.ones([batch_size * num_steps], dtype=data_type())])
+            [tf.ones([batch_size * num_steps], dtype=tf.float32)]
+        )
 
         self._cost = cost = tf.reduce_sum(loss) / batch_size
         self._final_state = state
@@ -197,9 +196,8 @@ class PTBModel(object):
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), config.max_grad_norm)
         optimizer = tf.train.GradientDescentOptimizer(self._lr)
-        self._train_op = optimizer.apply_gradients(
-            zip(grads, tvars),
-            global_step=tf.compat.v1.train.get_or_create_global_step())
+        self._train_op = optimizer.apply_gradients(zip(grads, tvars),
+                                                   global_step=tf.train.get_or_create_global_step())
 
         self._new_lr = tf.placeholder(tf.float32, shape=[], name="new_learning_rate")
         self._lr_update = tf.assign(self._lr, self._new_lr)
@@ -324,8 +322,8 @@ def run_epoch(session, model, eval_op=None, verbose=False):
         iters += model.input.num_steps
 
         if verbose and step % (model.input.epoch_size // 10) == 10:
-            print("%.3f perplexity: %.3f speed: %.0f wps" %
-                  (step * 1.0 / model.input.epoch_size, np.exp(costs / iters),
+            print("%.3f loss: %.3f perplexity: %.3f speed: %.0f wps" %
+                  (step * 1.0 / model.input.epoch_size, cost, np.exp(costs / iters),
                    iters * model.input.batch_size / (time.time() - start_time)))
 
     return np.exp(costs / iters)
