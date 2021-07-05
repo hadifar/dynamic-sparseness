@@ -184,6 +184,9 @@ class PTBModel(object):
             st, ct = [], []
             tmp = x
             for nl in range(n_layers):
+                # if is_training and config.keep_prob < 1:
+                #     inputs = tf.nn.dropout(inputs, config.keep_prob)
+                #
                 fc_gate = tf.matmul(h_weight[nl], tf.transpose(st_1[nl])) + tf.matmul(x_weight[nl], tf.transpose(tmp))
                 fc_gate = tf.transpose(fc_gate) + bias[nl]
 
@@ -191,7 +194,12 @@ class PTBModel(object):
                 i, f, g, o = tf.sigmoid(i), tf.sigmoid(f), tf.tanh(g), tf.sigmoid(o)
                 ct_i = ct_1[nl] * f + g * i
                 st_i = tf.tanh(ct_i) * o
+
                 tmp = st_i
+
+                if is_training and config.keep_prob < 1:  # the original paper only applies dropout on output
+                    tmp = tf.nn.dropout(tmp, config.keep_prob)
+
                 st.append(st_i)
                 ct.append(ct_i)
 
