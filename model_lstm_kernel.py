@@ -137,44 +137,78 @@ class PTBModel(object):
         num_steps = input_.num_steps
         size = config.hidden_size
         vocab_size = config.vocab_size
-
-        # Slightly better results can be obtained with forget gate biases
-        # initialized to 1 but the hyperparameters of the model would need to be
-        # different than reported in the paper.
-        lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(size, forget_bias=0.0, state_is_tuple=True)
-        if is_training and config.keep_prob < 1:
-            lstm_cell = tf.nn.rnn_cell.DropoutWrapper(
-                lstm_cell, output_keep_prob=config.keep_prob)
-        cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * config.num_layers, state_is_tuple=True)
-
-        self._initial_state = cell.zero_state(batch_size, tf.float32)
+        n_layers = config.num_layers
 
         with tf.device("/cpu:0"):
             embedding = tf.get_variable(
                 "embedding", [vocab_size, size], dtype=tf.float32)
             inputs = tf.nn.embedding_lookup(embedding, input_.input_data)
 
+        # Slightly better results can be obtained with forget gate biases
+        # initialized to 1 but the hyperparameters of the model would need to be
+        # different than reported in the paper.
+        # lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(size, forget_bias=0.0, state_is_tuple=True)
+        # if is_training and config.keep_prob < 1:
+        #     lstm_cell = tf.nn.rnn_cell.DropoutWrapper(lstm_cell, output_keep_prob=config.keep_prob)
+        # cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * config.num_layers, state_is_tuple=True)
+
+        # self._initial_state = cell.zero_state(batch_size, tf.float32)
+
         if is_training and config.keep_prob < 1:
             inputs = tf.nn.dropout(inputs, config.keep_prob)
 
-        # Simplified version of tensorflow.models.rnn.rnn.py's rnn().
-        # This builds an unrolled LSTM for tutorial purposes only.
-        # In general, use the rnn() or state_saving_rnn() from rnn.py.
-        #
-        # The alternative version of the code below is:
-        #
-        # inputs = tf.unstack(inputs, num=num_steps, axis=1)
-        # outputs, state = tf.nn.rnn(cell, inputs, initial_state=self._initial_state)
-        outputs = []
-        state = self._initial_state
-        with tf.variable_scope("RNN"):
-            for time_step in range(num_steps):
-                if time_step > 0:
-                    tf.get_variable_scope().reuse_variables()
-                (cell_output, state) = cell(inputs[:, time_step, :], state)
-                outputs.append(cell_output)
+        # outputs = []
+        # self._initial_state =
+        self._initial_state = tf.placeholder_with_default(tf.zeros(shape=[2, n_layers, inputs.shape[0], size],
+                                                                   dtype=tf.float32),
+                                                          shape=[2, n_layers, inputs.shape[0], size],
+                                                          name='initial_state')
 
-        # output = tf.reshape(outputs, (-1, size))
+        state = self._initial_state
+
+        x_weight = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4, size], stddev=0.1),
+                                   name='x_weight',
+                                   dtype=tf.float32)
+        h_weight = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4, size], stddev=0.1),
+                                   name='h_weight',
+                                   dtype=tf.float32)
+
+        bias = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4], stddev=0.1),
+                               name='bias_weight',
+                               dtype=tf.float32)
+
+        # init_state = tf.zeros(shape=[2, inputs.shape[0], size], dtype=tf.float32)
+
+        def step(hprev, x):
+            st_1, ct_1 = tf.unstack(hprev)
+            st, ct = [], []
+            tmp = x
+            for nl in range(n_layers):
+                fc_gate = tf.matmul(h_weight[nl], tf.transpose(st_1[nl])) + tf.matmul(x_weight[nl], tf.transpose(tmp))
+                fc_gate = tf.transpose(fc_gate) + bias[nl]
+
+                i, f, g, o = tf.split(fc_gate, 4, axis=1)
+                i, f, g, o = tf.sigmoid(i), tf.sigmoid(f), tf.tanh(g), tf.sigmoid(o)
+                ct_i = ct_1[nl] * f + g * i
+                st_i = tf.tanh(ct_i) * o
+                tmp = st_i
+                st.append(st_i)
+                ct.append(ct_i)
+
+            return tf.stack([st, ct])
+
+        states = tf.scan(step, tf.transpose(inputs, [1, 0, 2]), initializer=state)
+
+        # transpose/slice -> pick st from [ct, st] -> pick st[-1] from st
+        outputs = tf.transpose(states, [1, 2, 3, 0, 4])[0][-1]
+
+        # with tf.variable_scope("RNN"):
+        #     for time_step in range(num_steps):
+        #         if time_step > 0:
+        #             tf.get_variable_scope().reuse_variables()
+        #         (cell_output, state) = cell(inputs[:, time_step, :], state)
+        #         outputs.append(cell_output)
+
         output = tf.reshape(tf.concat(outputs, 1), (-1, size))
         softmax_w = tf.get_variable("softmax_w", [size, vocab_size], dtype=tf.float32)
         softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype=tf.float32)
@@ -309,10 +343,10 @@ def run_epoch(session, model, eval_op=None, verbose=False):
         fetches["eval_op"] = eval_op
 
     for step in range(model.input.epoch_size):
-        feed_dict = {}
-        for i, (c, h) in enumerate(model.initial_state):
-            feed_dict[c] = state[i].c
-            feed_dict[h] = state[i].h
+        feed_dict = {model.initial_state: state}
+        # for i, (c, h) in enumerate(model.initial_state):
+        #     feed_dict[c] = state[i].c
+        #     feed_dict[h] = state[i].h
 
         vals = session.run(fetches, feed_dict)
         cost = vals["cost"]
