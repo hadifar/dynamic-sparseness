@@ -48,12 +48,20 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# import sys
+# sys.path.append('..')
+
 import time
 
 import numpy as np
 import tensorflow.compat.v1 as tf
 
+from model_lstm import DynamicSparseGate
 from model_lstm_kernel_ptb_reader import ptb_raw_data, ptb_producer
+
+from sgk.sparse.ops.backend import kernels
+
+
 
 tf.compat.v1.disable_eager_execution()
 
@@ -159,8 +167,13 @@ class PTBModel(object):
                                      dtype=tf.float32)
 
         bias = tf.get_variable(initializer=tf.truncated_normal([n_layers, size * 4], stddev=0.1),
-                               name='bias_weight',
+                               name='rnn_bias',
                                dtype=tf.float32)
+
+        # todo: @amir different gating for different layers?
+
+        dynamic_gate = DynamicSparseGate(size, 0.5, 128)
+        rows, columns, values, row_indices, row_offsets, column_indices = dynamic_gate(inputs, rnn_weight)
 
         def step(hprev, x):
             st_1, ct_1 = tf.unstack(hprev)
@@ -168,8 +181,16 @@ class PTBModel(object):
             tmp = x
             for l_i in range(n_layers):
 
-                fc_gate = tf.matmul(rnn_weight[l_i], tf.transpose(tf.concat([tmp, st_1[l_i]], axis=1)))
-
+                # fc_gate = tf.matmul(rnn_weight[l_i], tf.transpose(tf.concat([tmp, st_1[l_i]], axis=1)))
+                fc_gate = kernels.spmm(rows,
+                                       columns,
+                                       values,
+                                       row_indices,
+                                       row_offsets,
+                                       column_indices,
+                                       tmp,
+                                       False,
+                                       False)
                 fc_gate = tf.transpose(fc_gate) + bias[l_i]
 
                 i, f, g, o = tf.split(fc_gate, 4, axis=1)
@@ -213,8 +234,7 @@ class PTBModel(object):
         tvars = tf.trainable_variables()
         grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars), config.max_grad_norm)
         optimizer = tf.train.GradientDescentOptimizer(self._lr)
-        self._train_op = optimizer.apply_gradients(zip(grads, tvars),
-                                                   global_step=tf.train.get_or_create_global_step())
+        self._train_op = optimizer.apply_gradients(zip(grads, tvars), global_step=tf.train.get_or_create_global_step())
 
         self._new_lr = tf.placeholder(tf.float32, shape=[], name="new_learning_rate")
         self._lr_update = tf.assign(self._lr, self._new_lr)

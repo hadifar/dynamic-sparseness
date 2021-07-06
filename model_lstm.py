@@ -17,6 +17,8 @@ import math
 
 import tensorflow.compat.v1 as tf
 
+# import sys
+# sys.path.append('..')
 # from sgk.sparse.ops.backend import kernels
 
 tf.compat.v1.disable_eager_execution()
@@ -54,15 +56,17 @@ class DynamicSparseGate(tf.Module):
             dtype=tf.int32)
 
     def __call__(self, inps, dense_weight):
-        gval = tf.matmul(tf.reduce_mean(inps, axis=1), self.g_weight)
+        inps = tf.expand_dims(tf.reduce_mean(inps, axis=tf.range(tf.rank(inps) - 1, )), 0)
+        gval = tf.matmul(inps, self.g_weight)
         topval = tf.math.top_k(gval, self.top_blocks)[0][:, -1]  # smallest value in topk
-        expandval = tf.cast((gval >= topval), tf.float32) * gval
+        expandval = tf.cast(gval >= topval, tf.float32) * gval
 
         matrix = self.gate_loc(expandval)
         # values = tf.boolean_mask(matrix, mask)
         denominator = tf.math.reduce_sum(matrix, axis=-1, keepdims=True) / tf.cast(matrix.shape[-1], dtype=tf.float32)
         matrix = matrix / denominator
 
+        # return matrix
         return self.d2s(matrix, dense_weight)
 
     @tf.function
@@ -160,9 +164,9 @@ class LSTMModel(BaseModel):
 
     # @tf.function
     def lstm(self, inps):
-        # rnn_weight = self.rnn_weight
-        rows, columns, values, row_indices, row_offsets, column_indices = \
-            self.dynamic_gate(inps, self.rnn_weight)
+        rnn_weight = self.rnn_weight * self.dynamic_gate(inps, None)
+        # rows, columns, values, row_indices, row_offsets, column_indices = \
+        #     self.dynamic_gate(inps, self.rnn_weight)
 
         init_state = tf.zeros(shape=[2, inps.shape[0], self.hidden_size], dtype=tf.float32)
 
@@ -170,8 +174,8 @@ class LSTMModel(BaseModel):
             st_1, ct_1 = tf.unstack(hprev)
             # st_1, x = tf.transpose(st_1), tf.transpose(x)
 
-            # fc_gate = tf.matmul(rnn_weight, tf.transpose(tf.concat([x, st_1], axis=1)))
-            fc_gate = kernels.spmm(rows, columns, values, row_indices, row_offsets, column_indices, x, False, False)
+            fc_gate = tf.matmul(rnn_weight, tf.transpose(tf.concat([x, st_1], axis=1)))
+            # fc_gate = kernels.spmm(rows, columns, values, row_indices, row_offsets, column_indices, x, False, False)
 
             fc_gate = tf.transpose(fc_gate) + self.bias
             i, f, g, o = tf.split(fc_gate, 4, axis=1)
@@ -229,5 +233,5 @@ model = LSTMModel(hz=1024)
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    dummy_input = tf.random.uniform([1, 512], minval=0, maxval=30000, dtype=tf.int32)
+    dummy_input = tf.random.uniform([10, 512], minval=0, maxval=30000, dtype=tf.int32)
     print(sess.run(model.loss(model(dummy_input), dummy_input)))
