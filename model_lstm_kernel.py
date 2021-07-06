@@ -48,8 +48,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# import sys
-# sys.path.append('..')
+import sys
+
+sys.path.append('..')
 
 import time
 
@@ -169,7 +170,6 @@ class PTBModel(object):
                                dtype=tf.float32)
 
         # todo: @amir different gating for different layers?
-
         dynamic_gate = DynamicSparseGate(hz=size, sparsity=0.5, block_size=128)
         rows, columns, values, row_indices, row_offsets, column_indices = dynamic_gate(inputs, rnn_weight)
 
@@ -186,7 +186,7 @@ class PTBModel(object):
                                        row_indices,
                                        row_offsets,
                                        column_indices,
-                                       tmp,
+                                       tf.transpose(tf.concat([tmp, st_1[l_i]], axis=1)),
                                        False,
                                        False)
                 fc_gate = tf.transpose(fc_gate) + bias[l_i]
@@ -313,6 +313,22 @@ class LargeConfig(object):
     vocab_size = 10000
 
 
+class SparseConfig(object):
+    """sparse config."""
+    init_scale = 0.04
+    learning_rate = 1.0
+    max_grad_norm = 10
+    num_layers = 2
+    num_steps = 35
+    hidden_size = 1536
+    max_epoch = 14
+    max_max_epoch = 55
+    keep_prob = 0.35
+    lr_decay = 1 / 1.15
+    batch_size = 20
+    vocab_size = 10000
+
+
 class TestConfig(object):
     """Tiny config, for testing."""
     init_scale = 0.1
@@ -370,6 +386,8 @@ def get_config():
         return LargeConfig()
     elif FLAGS.model == "test":
         return TestConfig()
+    elif FLAGS.model == 'sparse':
+        return SparseConfig()
     else:
         raise ValueError("Invalid model: %s", FLAGS.model)
 
