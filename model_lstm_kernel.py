@@ -61,8 +61,6 @@ from model_lstm_kernel_ptb_reader import ptb_raw_data, ptb_producer
 
 from sgk.sparse.ops.backend import kernels
 
-
-
 tf.compat.v1.disable_eager_execution()
 
 flags = tf.flags
@@ -172,7 +170,7 @@ class PTBModel(object):
 
         # todo: @amir different gating for different layers?
 
-        dynamic_gate = DynamicSparseGate(size, 0.5, 128)
+        dynamic_gate = DynamicSparseGate(hz=size, sparsity=0.5, block_size=128)
         rows, columns, values, row_indices, row_offsets, column_indices = dynamic_gate(inputs, rnn_weight)
 
         def step(hprev, x):
