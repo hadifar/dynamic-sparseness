@@ -27,7 +27,7 @@ tf.disable_v2_behavior()
 
 class DynamicSparseGate(tf.Module):
     def __init__(self, hz, sparsity, block_size=4):
-        assert hz % block_size == 0
+        assert hz % block_size == 0, print("hidden size is {}, block-size is {}".format(hz,block_size))
         assert (hz * 4 * hz * 2) % (block_size * block_size) == 0
         self.sparsity = sparsity
         self.hz = hz
