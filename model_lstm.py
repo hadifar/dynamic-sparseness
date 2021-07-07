@@ -232,9 +232,9 @@ class LSTMModel(BaseModel):
 #
 #
 # model = LSTMSparseModel(hz=1024, block_size=128, sparsity=0.5)
-model = LSTMModel(hz=2048,block_size=128)
-
-with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
-    dummy_input = tf.random.uniform([20, 512], minval=0, maxval=30000, dtype=tf.int32)
-    print(sess.run(model(dummy_input)))
+# model = LSTMModel(hz=2048,block_size=128)
+#
+# with tf.Session() as sess:
+#     sess.run(tf.global_variables_initializer())
+#     dummy_input = tf.random.uniform([20, 512], minval=0, maxval=30000, dtype=tf.int32)
+#     print(sess.run(model(dummy_input)))

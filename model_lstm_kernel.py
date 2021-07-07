@@ -321,7 +321,7 @@ class SparseConfig(object):
     max_grad_norm = 10
     num_layers = 2
     num_steps = 35
-    hidden_size = 1536
+    hidden_size = 2048
     max_epoch = 14
     max_max_epoch = 55
     keep_prob = 0.35
