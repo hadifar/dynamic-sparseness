@@ -27,10 +27,10 @@ tf.disable_v2_behavior()
 
 class DynamicSparseGate(tf.Module):
     def __init__(self, hz, sparsity, block_size=4):
-
         assert hz % block_size == 0, (hz, block_size)
         assert (hz * 4 * hz * 2) % (block_size * block_size) == 0, (hz, block_size)
-        assert hz * 2 % int((hz * 4 * hz * 2) / (block_size * block_size)) == 0, (hz * 2, int((hz * 4 * hz * 2) / (block_size * block_size)))
+        assert hz * 2 % int((hz * 4 * hz * 2) / (block_size * block_size)) == 0, (
+            hz * 2, int((hz * 4 * hz * 2) / (block_size * block_size)))
         self.sparsity = sparsity
         self.hz = hz
         self.block_size = block_size
@@ -57,30 +57,30 @@ class DynamicSparseGate(tf.Module):
             name="dsg_columns",
             dtype=tf.int32)
 
-
-
     def __call__(self, inps, dense_weight):
         inps = tf.expand_dims(tf.reduce_mean(inps, axis=tf.range(tf.rank(inps) - 1)), 0)
         gval = tf.matmul(inps, self.g_weight)
         topval = tf.math.top_k(gval, self.top_blocks)[0][:, -1]  # smallest value in topk
         expandval = tf.cast(gval >= topval, tf.float32) * gval
+        gate = tf.repeat(expandval, self.block_size ** 2)
+        gate = tf.reshape(gate, dense_weight.shape)
 
-        matrix = self.block_mul(dense_weight, expandval)
+        # matrix = self.block_mul(dense_weight, expandval)
         # values = tf.boolean_mask(matrix, mask)
-        denominator = tf.math.reduce_sum(matrix, axis=-1, keepdims=True) / tf.cast(matrix.shape[-1], dtype=tf.float32)
-        matrix = matrix / denominator
+        denominator = tf.math.reduce_sum(gate, axis=-1, keepdims=True) / tf.cast(gate.shape[-1], dtype=tf.float32)
+        gate = gate / denominator
+        return gate
+        # return self.d2s(gate, dense_weight)
 
-        return self.d2s(matrix, dense_weight),matrix
-
-    # @tf.function
-    def block_mul(self, p, m):
-        """p is large matrix"""
-        p_x, p_y = p.shape #(8192,4096)
-        m_x, m_y = m.shape #(1, 256)
-        m_4d = tf.reshape(m, (m_x, 1, m_y, 1))
-        m_broadcasted = tf.broadcast_to(m_4d, (m_x, p_x // m_x, m_y, p_y // m_y))
-        mp = tf.reshape(m_broadcasted, (p_x, p_y))
-        return mp
+    # # @tf.function
+    # def block_mul(self, p, m):
+    #     """p is large matrix"""
+    #     p_x, p_y = p.shape #(8192,4096)
+    #     m_x, m_y = m.shape #(1, 256)
+    #     m_4d = tf.reshape(m, (m_x, 1, m_y, 1))
+    #     m_broadcasted = tf.broadcast_to(m_4d, (m_x, p_x // m_x, m_y, p_y // m_y))
+    #     mp = tf.reshape(m_broadcasted, (p_x, p_y))
+    #     return mp
 
     @tf.function
     def d2s(self, matrix, dense_weight):
@@ -167,7 +167,7 @@ class LSTMModel(BaseModel):
 
     # @tf.function
     def lstm(self, inps):
-        rnn_weight = self.rnn_weight * self.dynamic_gate(inps, self.rnn_weight)[1]
+        rnn_weight = self.rnn_weight * self.dynamic_gate(inps, self.rnn_weight)
         # rows, columns, values, row_indices, row_offsets, column_indices = \
         #     self.dynamic_gate(inps, self.rnn_weight)
 
@@ -191,7 +191,6 @@ class LSTMModel(BaseModel):
         states = tf.scan(step, tf.transpose(inps, [1, 0, 2]), initializer=init_state)
 
         return tf.transpose(states, [1, 2, 0, 3])[0]
-
 
 #
 # class LSTMSparseModel(BaseModel):

@@ -169,7 +169,8 @@ class PTBModel(object):
                                name='rnn_bias',
                                dtype=tf.float32)
 
-        gates = [DynamicSparseGate(hz=size, sparsity=0.5, block_size=128)(inputs, rnn_weight) for _ in range(n_layers)]
+        dynamic_gate = DynamicSparseGate(hz=size, sparsity=0.5, block_size=128)
+        gates = [dynamic_gate(inputs, rnn_weight[l_i]) for l_i in range(n_layers)]
 
 
         #gates =  rows, columns, values, row_indices, row_offsets, column_indices
@@ -181,12 +182,12 @@ class PTBModel(object):
             for l_i in range(n_layers):
 
                 # fc_gate = tf.matmul(rnn_weight[l_i], tf.transpose(tf.concat([tmp, st_1[l_i]], axis=1)))
-                fc_gate = kernels.spmm(gates[l_i][1],
+                fc_gate = kernels.spmm(gates[l_i][0],
+                                       gates[l_i][1],
                                        gates[l_i][2],
                                        gates[l_i][3],
                                        gates[l_i][4],
                                        gates[l_i][5],
-                                       gates[l_i][6],
                                        tf.transpose(tf.concat([tmp, st_1[l_i]], axis=1)),
                                        False,
                                        False)
