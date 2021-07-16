@@ -1,6 +1,6 @@
-import math
 import torch
 from torch import nn
+
 from tcop.gmm import GMM
 
 torch.manual_seed(2019)
