@@ -15,6 +15,7 @@ This repository contains:
 
 - Inference time benchmarking for dynamic sparseness (excluding cost of sparse-to-dense & dennse to sparse)    
 - Original cuda implementation of dynamic sparseness
+- Mnist experiemnt
 - Language model experiments
 
 
