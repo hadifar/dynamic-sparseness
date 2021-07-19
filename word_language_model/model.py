@@ -107,13 +107,13 @@ class GatedLSTMCell(RNNCellBase):
                                    dtype=torch.float)
                 self.g_ih = torch.block_diag(*([block] * 4))
                 self.g_hh = torch.block_diag(*([block] * 4))
-            elif sparsity == 0.9167:
+            elif sparsity == 0.9:
                 block = torch.ones((int(((hidden_size / blocksize) / 12) * blocksize),
                                     int((((hidden_size * 4) / blocksize) / 12) * blocksize)),
                                    dtype=torch.float)
                 self.g_ih = torch.block_diag(*([block] * 12))
                 self.g_hh = torch.block_diag(*([block] * 12))
-        else:
+        elif mode == 'dynamic':
             self.blockmul = self.blockmul2
             self.ih_nblock = int(self.input_size / self.block_size)
             self.hh_nblock = int(self.hidden_size / self.block_size)
@@ -121,7 +121,8 @@ class GatedLSTMCell(RNNCellBase):
                                       Sparsify1D(sparsity))
             self.g_hh = nn.Sequential(nn.Linear(hidden_size, self.hh_nblock * self.hh_nblock * 4),
                                       Sparsify1D(sparsity))
-
+        else:
+            raise NotImplementedError('something goes wrong...')
         self.epoch = 1
 
     def blockmul1(self, inp, hx, weight_ih, weight_hh):
