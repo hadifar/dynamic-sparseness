@@ -69,7 +69,10 @@ parser.add_argument('--momentum', default=0., type=float, metavar='M',
 parser.add_argument('--weight-decay', '--wd', default=0., type=float,
                     metavar='W', help='weight decay (default: 0)')
 
+# our arguments
 parser.add_argument('--sparsity', '--sp', default=0.5, type=float, help='sp level (default: 0)')
+parser.add_argument('--mode', default='dynamic', type=str, help='static vs dynamic blocks')
+parser.add_argument('--blocksize', default=128, type=int, help='block size')
 
 args = parser.parse_args()
 
@@ -157,7 +160,11 @@ if args.resume:
         # this makes them a continuous chunk, and will speed up forward pass
         model.rnn.flatten_parameters()
 else:
-    model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied).to(
+    model = model.RNNModel(args.model, ntokens,
+                           args.emsize, args.nhid,
+                           args.nlayers, args.dropout,
+                           args.tied, args.sparsity,
+                           args.blocksize, args.mode).to(
         device)
 
 criterion = nn.CrossEntropyLoss()
@@ -212,6 +219,8 @@ def evaluate(data_source):
 def train(epoch, optimizer, compression_scheduler=None):
     # Turn on training mode which enables dropout.
     model.train()
+    if args.model == 'GatedLSTM':
+        model.on_epoch_begin(epoch)
 
     total_samples = train_data.size(0)
     steps_per_epoch = math.ceil(total_samples / args.bptt)

@@ -14,12 +14,9 @@ class Sparsify1D(nn.Module):
     def __init__(self, sparse_ratio=0.5):
         super().__init__()
         self.sr = sparse_ratio
-        self.preact = None
-        self.act = None
 
     def forward(self, x):
         k = int(math.ceil(self.sr * x.shape[1]))
-
         topval = x.topk(k, dim=1)[0][:, -1]
         topval = topval.expand(x.shape[1], x.shape[0]).permute(1, 0)
         comp = (x >= topval).to(x)
@@ -28,16 +25,6 @@ class Sparsify1D(nn.Module):
         res = res / (torch.sum(res, dim=-1, keepdim=True) / x.shape[-1])
 
         return res
-
-    def get_activation(self):
-        def hook(model, input, output):
-            self.preact = input[0].cpu().detach().clone()
-            self.act = output.cpu().detach().clone()
-
-        return hook
-
-    def record_activation(self):
-        self.register_forward_hook(self.get_activation())
 
 
 class RNNCellBase(nn.Module):
@@ -98,32 +85,36 @@ class GatedLSTMCell(RNNCellBase):
         super(GatedLSTMCell, self).__init__(input_size, hidden_size, bias, num_chunks=4)
         self.block_size = blocksize
 
-        if mode == 'torch':
+        if mode == 'dynamic_torch':
+            self.blockmul = self.blockmul1
             self.ih_nblock = int((input_size * hidden_size * 4) / (blocksize * blocksize))
             self.hh_nblock = int((hidden_size * hidden_size * 4) / (blocksize * blocksize))
             self.g_ih = nn.Sequential(nn.Linear(input_size, self.ih_nblock), Sparsify1D(sparsity))
             self.g_hh = nn.Sequential(nn.Linear(hidden_size, self.hh_nblock), Sparsify1D(sparsity))
-        elif mode == 'static_block':
-            # todo: make it clean
-            self.ih_nblock = int(self.input_size / self.block_size)
-            self.hh_nblock = int(self.hidden_size / self.block_size)
 
+        elif mode == 'static':
+            # todo:@amir: clean it
+            self.blockmul = self.blockmul3
             if sparsity == 0.5:
-                block = torch.ones((int(input_size * (1 / 2)), int(self.ih_nblock * self.hh_nblock * 4 * (1 / 2))),
-                                   dtype=torch.float32)
-                self.g_ih = torch.block_diag(block, block)
-                self.g_hh = torch.block_diag(block, block)
+                block = torch.ones((int(((hidden_size / blocksize) / 2) * blocksize),
+                                    int((((hidden_size * 4) / blocksize) / 2) * blocksize)),
+                                   dtype=torch.float)
+                self.g_ih = torch.block_diag(*([block] * 2))
+                self.g_hh = torch.block_diag(*([block] * 2))
             elif sparsity == 0.75:
-                block = torch.ones((int(input_size * (1 / 4)), int(self.ih_nblock * self.hh_nblock * 4 * (1 / 4))),
-                                   dtype=torch.float32)
-                self.g_ih = torch.block_diag(block, block, block, block)
-                self.g_hh = torch.block_diag(block, block, block, block)
-            elif sparsity == 0.9:
-                block = torch.ones((int(input_size * (1 / 10)), int(self.ih_nblock * self.hh_nblock * 4 * (1 / 10))),
-                                   dtype=torch.float32)
-                self.g_ih = torch.block_diag(block, block, block, block, block, block, block, block, block, block)
-                self.g_hh = torch.block_diag(block, block, block, block, block, block, block, block, block, block)
+                block = torch.ones((int(((hidden_size / blocksize) / 4) * blocksize),
+                                    int((((hidden_size * 4) / blocksize) / 4) * blocksize)),
+                                   dtype=torch.float)
+                self.g_ih = torch.block_diag(*([block] * 4))
+                self.g_hh = torch.block_diag(*([block] * 4))
+            elif sparsity == 0.9167:
+                block = torch.ones((int(((hidden_size / blocksize) / 12) * blocksize),
+                                    int((((hidden_size * 4) / blocksize) / 12) * blocksize)),
+                                   dtype=torch.float)
+                self.g_ih = torch.block_diag(*([block] * 12))
+                self.g_hh = torch.block_diag(*([block] * 12))
         else:
+            self.blockmul = self.blockmul2
             self.ih_nblock = int(self.input_size / self.block_size)
             self.hh_nblock = int(self.hidden_size / self.block_size)
             self.g_ih = nn.Sequential(nn.Linear(input_size, self.ih_nblock * self.hh_nblock * 4),
@@ -159,11 +150,10 @@ class GatedLSTMCell(RNNCellBase):
         return g1 + g2
 
     def blockmul3(self, inp, hx, weight_ih, weight_hh):
-        bsize = inp.shape[0]
-        gih = self.g_ih.view(bsize, self.ih_nblock, 4 * self.hh_nblock)
-        ghh = self.g_hh.view(bsize, self.hh_nblock, 4 * self.hh_nblock)
-        g1 = GMV.apply(inp, weight_ih, gih).view(bsize, -1)
-        g2 = GMV.apply(hx, weight_hh, ghh).view(bsize, -1)
+        gih = self.g_ih * weight_ih
+        ghh = self.g_hh * weight_hh
+        g1 = torch.matmul(inp, gih)
+        g2 = torch.matmul(hx, ghh)
         return g1 + g2
 
     def forward(self, input, hx=None):
@@ -176,7 +166,7 @@ class GatedLSTMCell(RNNCellBase):
 
         hx, cx = hx
 
-        gates = self.blockmul2(input, hx, self.weight_ih, self.weight_hh) + self.bias_ih + self.bias_hh
+        gates = self.blockmul(input, hx, self.weight_ih, self.weight_hh) + self.bias_ih + self.bias_hh
 
         ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
 
@@ -196,7 +186,7 @@ class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=True, sparsity=0.5,
-                 blocksize=128):
+                 blocksize=128, mode='dynamic'):
 
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
@@ -205,7 +195,7 @@ class RNNModel(nn.Module):
         rnn_modulelist = []
         for i in range(nlayers):
             if rnn_type == 'GatedLSTMCell' or rnn_type == 'GatedLSTM':
-                rnn_modulelist.append(GatedLSTMCell(ninp, nhid, sparsity=sparsity, blocksize=blocksize))
+                rnn_modulelist.append(GatedLSTMCell(ninp, nhid, sparsity=sparsity, blocksize=blocksize, mode=mode))
             elif rnn_type in ['LSTMCell', 'GRUCell']:
                 rnn_modulelist.append(getattr(nn, rnn_type)(ninp, nhid))
             else:
@@ -276,7 +266,3 @@ class RNNModel(nn.Module):
         for rnn in self.rnn:
             if hasattr(rnn, 'on_epoch_begin'):
                 rnn.on_epoch_begin(epoch)
-
-        print('*' * 50)
-        print('whats going on man')
-        print('*' * 50)
