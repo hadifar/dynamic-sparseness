@@ -1,7 +1,6 @@
 # dynamic-sparseness
 
 Code for the following paper:
-`
 
 ```@article{hadifar2020block,
   title={Block-wise Dynamic Sparseness},
@@ -13,10 +12,10 @@ Code for the following paper:
 
 This repository contains:
 
-- Inference time benchmarking for dynamic sparseness (excluding cost of sparse-to-dense & dennse to sparse)    
-- Original cuda implementation of dynamic sparseness
-- Mnist experiment
+- Inference time benchmarking    
+- Original cuda implementation
+- MNIST experiment
 - Language model experiments
 
 
-If you have any question, please send me an email or submit an issue. 
+If you have any question, please send an email or submit an issue. 
