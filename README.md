@@ -2,17 +2,18 @@
 
 Code for the following paper:
 `
-@article{hadifar2020block,
+
+```@article{hadifar2020block,
   title={Block-wise Dynamic Sparseness},
   author={Hadifar, Amir and Deleu, Johannes and Develder, Chris and Demeester, Thomas},
   journal={arXiv preprint arXiv:2001.04686},
   year={2020}
 }
-`
+```
 
-This repository contains the following:
+This repository contains:
 
-- Inference time benchmark for dynamic sparseness (excluding cost of sparse-to-dense & dennse to sparse)    
+- Inference time benchmarking for dynamic sparseness (excluding cost of sparse-to-dense & dennse to sparse)    
 - Original cuda implementation of dynamic sparseness
 - Language model experiments
 
