@@ -19,5 +19,4 @@ This repository contains:
 - MNIST experiment
 - Language model experiments
 
-
-If you have any question, please send an email or submit an issue. 
+You can find more detailed description in each directory. If you have any question, please send an email or submit an issue. 
