@@ -1,11 +1,11 @@
-# dynamic-sparseness
+# exploration of blockwise dynamic-sparseness
 
 Code for the following paper:
 
 
 ```
 @article{hadifar2020block,
-  title={Block-wise Dynamic Sparseness},
+  title={Exploration of blockwise dynamic-sparseness},
   author={Hadifar, Amir and Deleu, Johannes and Develder, Chris and Demeester, Thomas},
   journal={arXiv preprint arXiv:2001.04686},
   year={2020}
